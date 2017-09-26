@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <unistd.h>
+#include <getopt.h>
+
 struct PID {
 	double proportional, integral, derivative;
 	double reset, oldError;
@@ -29,15 +32,41 @@ double PID(double input, double setPoint, struct PID* restrict controller) {
 	double i = IntegralControl(error, controller);
 	double d = DerivativeControl(error, controller);
 
-	printf("P: %3.3f I: %3.3f D: %3.3f\n", p, i, d);
+	printf("P: %3.3f I: %3.3f D: %3.3f ", p, i, d);
 
 	return p+i+d;
 }
 
+double drag(double environment, double system, double scalar) {
+	double diff = system - environment;
+
+	double sign = (system < environment) ? -1.0 : 1.0;
+
+	diff /= 10;
+	return diff*diff*sign*scalar;
+}
+
+void usage() {
+	printf("Usage\n\n");
+
+	printf("\t-p [integer]\tProportional factor * 1000\n");
+	printf("\t-i [integer]\tIntegral factor * 1000\n");
+	printf("\t-d [integer]\tDifferential factor * 1000\n");
+	printf("\t-s [integer]\tInitial set point * 1000\n");
+	printf("\t-m [integer]\tInitial measurement * 1000\n");
+	printf("\t-r [integer]\tDrag scalar * 1000\n");
+	printf("\t-e [integer]\tEnvironment value * 1000\n");
+	printf("\t-f [integer]\tResponse factor* 1000\n");
+	printf("\t-n [integer]\tNumber of samples\n");
+}
+
 int main(int argc, char** argv) {
 
-	double 	setPoint = 20,
-		measurement = 2;
+	double 	setPoint = 20.0,
+		measurement = 2.0,
+		response = 1.0,
+		environment = 2.0,
+		dragScalar = 0.2;
 
 	struct PID controller = { 
 		.proportional = .5,
@@ -48,26 +77,48 @@ int main(int argc, char** argv) {
 		.oldError = 0,
 	};
 
-	if (argc >= 4) {
-		controller.proportional = ((double)atoi(argv[1]) / 10000.0);
-		controller.integral = ((double)atoi(argv[2]) / 10000.0);
-		controller.derivative= ((double)atoi(argv[3]) / 10000.0);
-
-		printf("Kp: %f, Ki: %f Kd: %f\n", controller.proportional, controller.integral, controller.derivative);
+	int c = 0, iterations = 20;
+	while ((c = getopt (argc, argv, "p:i:d:n:s:m:r:e:f:")) != -1) {
+		switch (c) {
+		case '?':
+			usage();
+			return 0;
+		case 'p':
+			controller.proportional = (double)(atoi(optarg))/1000;
+			break;
+		case 'i':
+			controller.integral = (double)(atoi(optarg))/1000;
+			break;
+		case 'd':
+			controller.derivative = (double)(atoi(optarg))/1000;
+			break;
+		case 'n':
+			iterations = atoi(optarg);
+			break;
+		case 's':
+			setPoint = (double)(atoi(optarg))/1000;
+			break;
+		case 'm':
+			measurement = (double)(atoi(optarg))/1000;
+			break;
+		case 'r':
+			dragScalar = (double)(atoi(optarg))/1000;
+			break;
+		case 'e':
+			environment = (double)(atoi(optarg))/1000;
+			break;
+		case 'f':
+			response = (double)(atoi(optarg))/1000;
+			break;
+		}
 	}
 
-	if (argc >= 5) {
-		setPoint = (double)atoi(argv[4]);
-	}
-
-	int itterations = 10;
-	if (argc >= 6) {
-		itterations = atoi(argv[5]);
-	}
-
-	for (int i = 0; i < itterations; i++) {
+	for (int i = 0; i < iterations; i++) {
 		printf("%3i: Measurement: %3.3f ", i, measurement);
-		measurement += 0.3 * PID(measurement, setPoint, &controller) - 0.3;
+		measurement += response*PID(measurement, setPoint, &controller);
+		double dragValue= drag(environment, measurement, dragScalar); 
+		measurement -= dragValue;
+		printf("Drag: %3.3f\n", dragValue);
 	}
 
 	return EXIT_SUCCESS;
